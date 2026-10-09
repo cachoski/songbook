@@ -6,40 +6,38 @@
   <title>Karaoke Songbook</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = {
-      darkMode: 'class',
-    }
+    tailwind.config = { darkMode: 'class' }
   </script>
   <style>
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-slate-900 dark:bg-slate-900 text-slate-100 transition-colors duration-200 min-h-screen" id="appBody">
+<body class="bg-slate-900 text-slate-100 transition-colors duration-200 min-h-screen" id="appBody">
 
   <div class="max-w-4xl mx-auto p-4">
-    <!-- Header with Theme Toggle -->
-    <header class="flex justify-between items-center py-4 mb-2 border-b border-slate-800 dark:border-slate-800">
+    <!-- Header -->
+    <header class="flex justify-between items-center py-4 mb-2 border-b border-slate-800">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-pink-500 tracking-wider flex items-center gap-2">
           🎤 KARAOKE SONGBOOK
         </h1>
-        <p class="text-xs text-gray-400 mt-1">Instant Search & Favorites</p>
+        <p class="text-xs text-gray-400 mt-1">Instant Search & Mobile Songbook</p>
       </div>
       <button onclick="toggleTheme()" class="p-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-semibold flex items-center gap-2 transition border border-slate-700">
         <span id="themeIcon">🌙</span> <span id="themeLabel" class="hidden sm:inline">Dark</span>
       </button>
     </header>
 
-    <!-- Search Box -->
-    <div class="sticky top-0 z-20 bg-slate-900 dark:bg-slate-900 pt-2 pb-3">
+    <!-- Search & Filters Header -->
+    <div class="sticky top-0 z-20 bg-slate-900 pt-2 pb-3">
       <div class="relative">
         <input 
           type="text" 
           id="searchInput" 
           placeholder="Search song #, title, or artist..." 
           class="w-full p-4 pl-12 rounded-2xl bg-slate-800 border border-slate-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-pink-500 shadow-xl text-base sm:text-lg"
-          oninput="filterSongs()"
+          oninput="onFilterChange()"
         />
         <span class="absolute left-4 top-4 text-gray-400 text-xl">🔍</span>
       </div>
@@ -65,14 +63,21 @@
       </div>
     </div>
 
-    <!-- Status / Count -->
+    <!-- Status Bar -->
     <div class="flex justify-between items-center text-xs text-gray-400 mb-3 px-1">
-      <span id="resultCount">Loading songs...</span>
+      <span id="resultCount">Loading database...</span>
       <span id="favCount" class="text-yellow-400 font-medium">⭐ 0 Saved</span>
     </div>
 
+    <!-- Top Pagination Controls -->
+    <div class="flex justify-between items-center bg-slate-800/80 p-3 rounded-xl border border-slate-700 mb-3 text-xs sm:text-sm">
+      <button onclick="changePage(-1)" id="prevBtn" class="px-4 py-2 bg-slate-700 hover:bg-pink-600 disabled:opacity-30 disabled:hover:bg-slate-700 rounded-lg font-bold transition">◀ Prev</button>
+      <span id="pageInfo" class="font-medium text-pink-400">Page 1 of 1</span>
+      <button onclick="changePage(1)" id="nextBtn" class="px-4 py-2 bg-slate-700 hover:bg-pink-600 disabled:opacity-30 disabled:hover:bg-slate-700 rounded-lg font-bold transition">Next ▶</button>
+    </div>
+
     <!-- Song Table -->
-    <div class="bg-slate-800 dark:bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80">
+    <div class="bg-slate-800 rounded-2xl overflow-hidden shadow-2xl border border-slate-700/80">
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-slate-950/80 text-pink-400 uppercase text-xs tracking-wider border-b border-slate-700">
@@ -87,14 +92,25 @@
         </tbody>
       </table>
     </div>
+
+    <!-- Bottom Pagination Controls -->
+    <div class="flex justify-between items-center bg-slate-800/80 p-3 rounded-xl border border-slate-700 mt-3 text-xs sm:text-sm">
+      <button onclick="changePage(-1)" id="prevBtnBottom" class="px-4 py-2 bg-slate-700 hover:bg-pink-600 disabled:opacity-30 disabled:hover:bg-slate-700 rounded-lg font-bold transition">◀ Prev</button>
+      <span id="pageInfoBottom" class="font-medium text-pink-400">Page 1 of 1</span>
+      <button onclick="changePage(1)" id="nextBtnBottom" class="px-4 py-2 bg-slate-700 hover:bg-pink-600 disabled:opacity-30 disabled:hover:bg-slate-700 rounded-lg font-bold transition">Next ▶</button>
+    </div>
   </div>
 
   <script>
     let songs = [];
+    let filteredSongs = [];
     let favorites = new Set(JSON.parse(localStorage.getItem('karaoke_favorites') || "[]"));
     let currentCategory = 'ALL';
     let currentLetter = '';
     let isDarkMode = true;
+
+    let currentPage = 1;
+    const itemsPerPage = 100;
 
     async function loadSongs() {
       try {
@@ -115,29 +131,80 @@
       }
       localStorage.setItem('karaoke_favorites', JSON.stringify(Array.from(favorites)));
       updateFavCount();
-      filterSongs();
+      filterSongs(false);
     }
 
     function updateFavCount() {
       document.getElementById('favCount').textContent = `⭐ ${favorites.size} Saved`;
     }
 
-    function renderSongs(data) {
+    function filterSongs(resetPage = true) {
+      if (resetPage) currentPage = 1;
+
+      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+      filteredSongs = songs.filter(song => {
+        const matchesQuery = String(song.no).toLowerCase().includes(query) ||
+                             String(song.title).toLowerCase().includes(query) ||
+                             (song.artist && String(song.artist).toLowerCase().includes(query));
+
+        let matchesCategory = true;
+        if (currentCategory === 'FAV') {
+          matchesCategory = favorites.has(song.no);
+        } else if (currentCategory === '2026') {
+          matchesCategory = (song.year === 2026 || song.year === "2026");
+        } else if (currentCategory !== 'ALL') {
+          matchesCategory = (song.lang && String(song.lang).toLowerCase() === currentCategory.toLowerCase());
+        }
+
+        let matchesLetter = true;
+        if (currentLetter) {
+          if (currentLetter === '#') {
+            matchesLetter = /^[0-9]/.test(song.title);
+          } else {
+            matchesLetter = String(song.title).toUpperCase().startsWith(currentLetter);
+          }
+        }
+
+        return matchesQuery && matchesCategory && matchesLetter;
+      });
+
+      renderTable();
+    }
+
+    function renderTable() {
       const tbody = document.getElementById('songTableBody');
       const countLabel = document.getElementById('resultCount');
-      
-      tbody.innerHTML = '';
-      countLabel.textContent = `Showing ${data.length.toLocaleString()} song(s)`;
+      const totalPages = Math.ceil(filteredSongs.length / itemsPerPage) || 1;
 
-      if (data.length === 0) {
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+
+      const startIdx = (currentPage - 1) * itemsPerPage;
+      const endIdx = startIdx + itemsPerPage;
+      const pageData = filteredSongs.slice(startIdx, endIdx);
+
+      tbody.innerHTML = '';
+      countLabel.textContent = `Showing ${filteredSongs.length.toLocaleString()} song(s)`;
+
+      const pageText = `Page ${currentPage} of ${totalPages.toLocaleString()}`;
+      document.getElementById('pageInfo').textContent = pageText;
+      document.getElementById('pageInfoBottom').textContent = pageText;
+
+      const disablePrev = currentPage === 1;
+      const disableNext = currentPage >= totalPages;
+
+      document.getElementById('prevBtn').disabled = disablePrev;
+      document.getElementById('prevBtnBottom').disabled = disablePrev;
+      document.getElementById('nextBtn').disabled = disableNext;
+      document.getElementById('nextBtnBottom').disabled = disableNext;
+
+      if (pageData.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-400">No matching songs found.</td></tr>`;
         return;
       }
 
-      // Display initial batch for responsiveness
-      const displayData = data.slice(0, 250);
-
-      displayData.forEach(song => {
+      pageData.forEach(song => {
         const isFav = favorites.has(song.no);
         const is2026 = song.year === 2026 || song.year === "2026";
 
@@ -158,39 +225,14 @@
       });
     }
 
-    function filterSongs() {
-      const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    function changePage(direction) {
+      currentPage += direction;
+      renderTable();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 
-      const filtered = songs.filter(song => {
-        // Query match
-        const matchesQuery = song.no.toLowerCase().includes(query) ||
-                             song.title.toLowerCase().includes(query) ||
-                             (song.artist && song.artist.toLowerCase().includes(query));
-
-        // Category match
-        let matchesCategory = true;
-        if (currentCategory === 'FAV') {
-          matchesCategory = favorites.has(song.no);
-        } else if (currentCategory === '2026') {
-          matchesCategory = (song.year === 2026 || song.year === "2026");
-        } else if (currentCategory !== 'ALL') {
-          matchesCategory = (song.lang && song.lang.toLowerCase() === currentCategory.toLowerCase());
-        }
-
-        // Letter match
-        let matchesLetter = true;
-        if (currentLetter) {
-          if (currentLetter === '#') {
-            matchesLetter = /^[0-9]/.test(song.title);
-          } else {
-            matchesLetter = song.title.toUpperCase().startsWith(currentLetter);
-          }
-        }
-
-        return matchesQuery && matchesCategory && matchesLetter;
-      });
-
-      renderSongs(filtered);
+    function onFilterChange() {
+      filterSongs(true);
     }
 
     function setCategory(cat) {
@@ -204,12 +246,12 @@
         activeBtn.classList.remove('bg-slate-800', 'text-gray-300');
         activeBtn.classList.add('bg-pink-600', 'text-white');
       }
-      filterSongs();
+      filterSongs(true);
     }
 
     function setLetter(letter) {
       currentLetter = letter;
-      filterSongs();
+      filterSongs(true);
     }
 
     function toggleTheme() {
@@ -219,7 +261,6 @@
       document.getElementById('themeLabel').textContent = isDarkMode ? 'Dark' : 'Light';
     }
 
-    // Initialize
     loadSongs();
   </script>
 </body>
